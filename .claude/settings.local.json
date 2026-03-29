@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm create:*)",
+      "Bash(shopt -s dotglob)",
+      "Bash(mv \"D:/Vibe coding/Serial Port/D/Vibe coding/Serial Port\"/* \"D:/Vibe coding/Serial Port\"/)",
+      "Bash(npm install:*)",
+      "Bash(npm run:*)",
+      "Bash(node:*)"
+    ]
+  }
+}
