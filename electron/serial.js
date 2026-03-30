@@ -1,4 +1,6 @@
 import { BrowserWindow, ipcMain } from 'electron'
+import { Buffer } from 'node:buffer'
+import process from 'node:process'
 import { SerialPort } from 'serialport'
 
 let activePort = null

@@ -47,6 +47,7 @@ function App() {
 
   const supported = useMemo(() => isDesktopSerialSupported(), [])
   const textBufferRef = useRef('')
+  const unsupportedError = supported ? '' : '桌面串口 API 未注入，请确认通过 Electron 启动。'
 
   const flushTextBuffer = () => {
     if (!textBufferRef.current) {
@@ -82,9 +83,11 @@ function App() {
     setHexText('')
   }
 
-  const refreshPorts = async () => {
+  const refreshPorts = async ({ clearError = true } = {}) => {
     try {
-      setError('')
+      if (clearError) {
+        setError('')
+      }
       const nextPorts = await listSerialPorts()
       setPorts(nextPorts)
       setConfig((current) => {
@@ -102,11 +105,12 @@ function App() {
 
   useEffect(() => {
     if (!supported) {
-      setError('桌面串口 API 未注入，请确认通过 Electron 启动。')
       return undefined
     }
 
-    refreshPorts()
+    queueMicrotask(() => {
+      refreshPorts({ clearError: false })
+    })
 
     const disposeData = onSerialData((payload) => {
       handleReceiveData(payload)
@@ -167,7 +171,7 @@ function App() {
       textBufferRef.current = ''
       await openSerialPort(config)
       setIsConnected(true)
-      setStatus(`正在连接 ${config.path}`)
+      setStatus(`已连接 ${config.path}`)
     } catch (connectionError) {
       setError(connectionError.message || '串口连接失败。')
       setIsConnected(false)
@@ -237,7 +241,7 @@ function App() {
         </section>
       </main>
 
-      {error ? <div className="error-banner">{error}</div> : null}
+      {error || unsupportedError ? <div className="error-banner">{error || unsupportedError}</div> : null}
     </div>
   )
 }

@@ -1,15 +1,46 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef } from 'react'
+
+const AUTO_SCROLL_THRESHOLD = 24
+
+function isNearBottom(element) {
+  return element.scrollHeight - element.scrollTop - element.clientHeight <= AUTO_SCROLL_THRESHOLD
+}
 
 function ReceivePanel({ terminalText, hexText, displayMode, onDisplayModeChange, onClear }) {
   const outputRef = useRef(null)
+  const shouldStickToBottomRef = useRef(true)
 
   useEffect(() => {
     const element = outputRef.current
     if (!element) {
-      return
+      return undefined
     }
 
-    element.scrollTop = element.scrollHeight
+    const handleScroll = () => {
+      shouldStickToBottomRef.current = isNearBottom(element)
+    }
+
+    handleScroll()
+    element.addEventListener('scroll', handleScroll)
+
+    return () => {
+      element.removeEventListener('scroll', handleScroll)
+    }
+  }, [])
+
+  useLayoutEffect(() => {
+    const element = outputRef.current
+    if (!element || !shouldStickToBottomRef.current) {
+      return undefined
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      element.scrollTop = element.scrollHeight
+    })
+
+    return () => {
+      window.cancelAnimationFrame(frameId)
+    }
   }, [terminalText, hexText, displayMode])
 
   const content = displayMode === 'hex' ? hexText : terminalText

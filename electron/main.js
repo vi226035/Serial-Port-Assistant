@@ -1,4 +1,5 @@
 import { BrowserWindow, app } from 'electron'
+import process from 'node:process'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import './serial.js'
@@ -6,6 +7,7 @@ import './serial.js'
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const isDev = !app.isPackaged
+const appIcon = path.join(__dirname, '..', 'build', 'icon.ico')
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -15,6 +17,7 @@ function createWindow() {
     minHeight: 760,
     backgroundColor: '#eef3fb',
     title: '串口助手',
+    icon: appIcon,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
