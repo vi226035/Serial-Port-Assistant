@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # Serial Assistant
 
 A desktop serial-port assistant built with React, Vite, Electron, and `serialport`.
@@ -42,7 +41,3 @@ The app is split into three layers:
 - The packaged Windows build is configured as a portable x64 target and is written to `release/`.
 - Electron is pinned to `36.4.0` because packaging and native rebuild behavior are sensitive to Electron version changes.
 - `vite.config.js` uses a relative asset base so the packaged app can load built assets from local files.
-=======
-# Serial-Port-Assistant
-基础串口功能
->>>>>>> b6da0e3070a18a0891cc0707a9f13019bf3caa61

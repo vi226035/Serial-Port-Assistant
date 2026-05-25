@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import ReceivePanel from './components/ReceivePanel'
 import SendPanel from './components/SendPanel'
 import SerialConfigPanel from './components/SerialConfigPanel'
-import { bytesToHex, bytesToText, hexToBytes, textWithLineEndingToBytes } from './lib/hex'
+import { bytesToHex, hexToBytes, textWithLineEndingToBytes } from './lib/hex'
 import {
   closeSerialPort,
   isDesktopSerialSupported,
@@ -46,39 +46,30 @@ function App() {
   const [error, setError] = useState('')
 
   const supported = useMemo(() => isDesktopSerialSupported(), [])
-  const textBufferRef = useRef('')
+  const textDecoderRef = useRef(new TextDecoder())
   const unsupportedError = supported ? '' : '桌面串口 API 未注入，请确认通过 Electron 启动。'
 
-  const flushTextBuffer = () => {
-    if (!textBufferRef.current) {
-      return
+  const flushDecoder = useCallback(() => {
+    const remaining = normalizeText(textDecoderRef.current.decode())
+    if (remaining) {
+      setTerminalText((current) => appendWithNewline(current, remaining))
     }
+    textDecoderRef.current = new TextDecoder()
+  }, [])
 
-    setTerminalText((current) => appendWithNewline(current, textBufferRef.current))
-    textBufferRef.current = ''
-  }
-
-  const handleReceiveData = (payload) => {
+  const handleReceiveData = useCallback((payload) => {
     const bytes = new Uint8Array(payload)
-    const textChunk = normalizeText(bytesToText(bytes))
+    const textChunk = normalizeText(textDecoderRef.current.decode(bytes, { stream: true }))
 
     setHexText((current) => appendWithNewline(current, bytesToHex(bytes)))
 
-    const combinedText = `${textBufferRef.current}${textChunk}`
-    const lastNewlineIndex = combinedText.lastIndexOf('\n')
-
-    if (lastNewlineIndex >= 0) {
-      const completeText = combinedText.slice(0, lastNewlineIndex + 1)
-      setTerminalText((current) => appendWithNewline(current, completeText))
-      textBufferRef.current = combinedText.slice(lastNewlineIndex + 1)
-      return
+    if (textChunk) {
+      setTerminalText((current) => appendWithNewline(current, textChunk))
     }
-
-    textBufferRef.current = combinedText
-  }
+  }, [])
 
   const clearReceiveOutput = () => {
-    textBufferRef.current = ''
+    flushDecoder()
     setTerminalText('')
     setHexText('')
   }
@@ -118,7 +109,7 @@ function App() {
 
     const disposeStatus = onSerialStatus((payload) => {
       if (!payload.connected) {
-        flushTextBuffer()
+        flushDecoder()
       }
       setIsConnected(Boolean(payload.connected))
       setStatus(payload.status || '状态已更新')
@@ -129,13 +120,13 @@ function App() {
     })
 
     return () => {
-      flushTextBuffer()
+      flushDecoder()
       disposeData?.()
       disposeStatus?.()
       disposeError?.()
       closeSerialPort()
     }
-  }, [supported])
+  }, [flushDecoder, handleReceiveData, supported])
 
   const handleConfigChange = (event) => {
     const { name, value } = event.target
@@ -162,13 +153,14 @@ function App() {
 
       if (isConnected) {
         await closeSerialPort()
-        flushTextBuffer()
+        flushDecoder()
         setIsConnected(false)
         setStatus('已断开')
         return
       }
 
-      textBufferRef.current = ''
+      flushDecoder()
+      setTerminalText('')
       await openSerialPort(config)
       setIsConnected(true)
       setStatus(`已连接 ${config.path}`)

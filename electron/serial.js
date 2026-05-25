@@ -1,10 +1,9 @@
-import { BrowserWindow, ipcMain } from 'electron'
+import { BrowserWindow, app, ipcMain } from 'electron'
 import { Buffer } from 'node:buffer'
-import process from 'node:process'
 import { SerialPort } from 'serialport'
 
 let activePort = null
-const isDev = process.env.NODE_ENV !== 'production'
+const isDev = !app.isPackaged
 
 function sendToRenderer(channel, payload) {
   const [window] = BrowserWindow.getAllWindows()
@@ -28,6 +27,20 @@ function cleanupPort() {
   activePort = null
 }
 
+export function cleanupSerial() {
+  if (!activePort?.isOpen) {
+    cleanupPort()
+    return
+  }
+
+  try {
+    activePort.close()
+  } catch {
+    // ignore close errors during app shutdown
+  }
+  cleanupPort()
+}
+
 ipcMain.handle('serial:list', async () => {
   devLog('list ports')
   try {
@@ -49,16 +62,21 @@ ipcMain.handle('serial:open', async (_event, options) => {
   devLog('open port', options)
 
   if (activePort?.isOpen) {
-    await new Promise((resolve, reject) => {
-      activePort.close((error) => {
-        if (error) {
-          reject(error)
-          return
-        }
-        resolve()
+    try {
+      await new Promise((resolve, reject) => {
+        activePort.close((error) => {
+          if (error) {
+            reject(error)
+            return
+          }
+          resolve()
+        })
       })
-    })
-    cleanupPort()
+    } catch (error) {
+      devLog('close existing port failed', error)
+    } finally {
+      cleanupPort()
+    }
   }
 
   const port = new SerialPort({
@@ -81,6 +99,11 @@ ipcMain.handle('serial:open', async (_event, options) => {
   })
 
   port.on('data', (chunk) => {
+    if (chunk.length === 0) {
+      return
+    }
+
+    devLog('data received', chunk.length, 'bytes:', Array.from(chunk))
     sendToRenderer('serial:data', Array.from(chunk))
   })
 
@@ -107,16 +130,21 @@ ipcMain.handle('serial:close', async () => {
   }
 
   const port = activePort
-  await new Promise((resolve, reject) => {
-    port.close((error) => {
-      if (error) {
-        reject(error)
-        return
-      }
-      resolve()
+  try {
+    await new Promise((resolve, reject) => {
+      port.close((error) => {
+        if (error) {
+          reject(error)
+          return
+        }
+        resolve()
+      })
     })
-  })
-  cleanupPort()
+  } catch (error) {
+    devLog('close port failed', error)
+  } finally {
+    cleanupPort()
+  }
   return true
 })
 
