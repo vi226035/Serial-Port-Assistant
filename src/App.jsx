@@ -26,6 +26,11 @@ const defaultConfig = {
   parity: 'none',
 }
 
+// Max buffered characters before trimming old data (prevents OOM on long sessions)
+const MAX_TERMINAL_LEN = 500000   // ~500 KB of text
+const MAX_HEX_LEN = 1000000        // ~1 MB of hex output
+const TRIM_KEEP_RATIO = 0.6        // keep newest 60% when trimming
+
 function formatDuration(ms) {
   if (ms < 1000) return `${ms}ms`
   const s = Math.floor(ms / 1000)
@@ -60,6 +65,13 @@ function decodeBytes(bytes, encoding, decoderRef) {
   return decoderRef.current.decode(bytes, { stream: true })
 }
 
+// Trim a string to maxLen, keeping the tail (newest data)
+function trimToMax(str, maxLen, keepRatio = TRIM_KEEP_RATIO) {
+  if (str.length <= maxLen) return str
+  const keepLen = Math.floor(maxLen * keepRatio)
+  return '…（已截断较早数据）…\n' + str.slice(-keepLen)
+}
+
 function App() {
   // Theme
   const [theme, setTheme] = useState(() => {
@@ -88,24 +100,67 @@ function App() {
   const [presetCommands, setPresetCommands] = useState([])
   const timedTimerRef = useRef(null)
 
-  // Receive state
+  // Receive state — visible UI state
   const [displayMode, setDisplayMode] = useState('text')
   const [terminalText, setTerminalText] = useState('')
   const [hexText, setHexText] = useState('')
   const [status, setStatus] = useState('未连接')
   const [error, setError] = useState('')
   const [receiveStats, setReceiveStats] = useState({ byteCount: 0, startTime: null, duration: '0秒' })
+
+  // Receive — internal buffering refs (not triggering re-render on every packet)
   const receiveDecoderRef = useRef(null)
   const allBytesRef = useRef([])
+  const pendingTextRef = useRef('')       // text accumulated since last flush
+  const pendingHexRef = useRef('')        // hex accumulated since last flush
+  const pendingByteCountRef = useRef(0)  // byte count accumulated since last flush
+  const rafIdRef = useRef(null)           // requestAnimationFrame id
+  const isFlushScheduledRef = useRef(false)
 
   const supported = useMemo(() => isDesktopSerialSupported(), [])
   const unsupportedError = supported ? '' : '桌面串口 API 未注入，请确认通过 Electron 启动。'
+
+  // --- Batched flush: schedule a single RAF to update React state ---
+  const scheduleFlush = useCallback(() => {
+    if (isFlushScheduledRef.current) return
+    isFlushScheduledRef.current = true
+    rafIdRef.current = requestAnimationFrame(() => {
+      isFlushScheduledRef.current = false
+      const pt = pendingTextRef.current
+      const ph = pendingHexRef.current
+      const pb = pendingByteCountRef.current
+
+      if (pt || ph || pb) {
+        setTerminalText(prev => trimToMax(prev + pt, MAX_TERMINAL_LEN))
+        setHexText(prev => trimToMax(prev + ph, MAX_HEX_LEN))
+        setReceiveStats(prev => ({ ...prev, byteCount: prev.byteCount + pb }))
+        pendingTextRef.current = ''
+        pendingHexRef.current = ''
+        pendingByteCountRef.current = 0
+      }
+    })
+  }, [])
+
+  // Cleanup RAF on unmount
+  useEffect(() => {
+    return () => {
+      if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current)
+    }
+  }, [])
 
   // Theme toggle handler
   const handleThemeToggle = () => toggleTheme()
 
   // Clear receive
   const clearReceiveOutput = () => {
+    // Cancel any pending flush
+    if (rafIdRef.current) {
+      cancelAnimationFrame(rafIdRef.current)
+      isFlushScheduledRef.current = false
+    }
+    pendingTextRef.current = ''
+    pendingHexRef.current = ''
+    pendingByteCountRef.current = 0
     setTerminalText('')
     setHexText('')
     setReceiveStats({ byteCount: 0, startTime: null, duration: '0秒' })
@@ -113,20 +168,23 @@ function App() {
     receiveDecoderRef.current = null
   }
 
-  // Receive data
+  // Receive data — accumulates in refs, schedules a RAF flush (throttled to 1/frame)
   const handleReceiveData = useCallback((bytes) => {
-    allBytesRef.current.push(...bytes)
-    const newByteCount = allBytesRef.current.length
+    // Always accumulate raw bytes for potential save/export
+    if (allBytesRef.current.length < 5 * 1024 * 1024) {
+      // Cap allBytes at 5 MB to avoid OOM
+      allBytesRef.current.push(...bytes)
+    }
 
-    // Decode for terminal text
+    // Decode and accumulate in pending refs
     const decoded = decodeBytes(bytes, encoding, receiveDecoderRef)
-    setTerminalText(prev => prev + decoded)
-    setHexText(prev => prev + bytesToHex(bytes) + '\n')
-    setReceiveStats(prev => ({
-      ...prev,
-      byteCount: newByteCount,
-    }))
-  }, [encoding])
+    pendingTextRef.current += decoded
+    pendingHexRef.current += bytesToHex(bytes) + '\n'
+    pendingByteCountRef.current += bytes.length
+
+    // Schedule a UI flush (throttled to once per animation frame)
+    scheduleFlush()
+  }, [encoding, scheduleFlush])
 
   // Duration timer
   useEffect(() => {
@@ -247,18 +305,20 @@ function App() {
     handleSend(cmd.value, cmd.mode)
   }
 
-  // Save receive data
-  const handleSaveReceive = () => {
-    const content = displayMode === 'hex' ? hexText : terminalText
-    if (!content) return
-    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
+  // Save receive data — use allBytesRef for accuracy (includes data not yet flushed)
+  const handleSaveReceive = useCallback(() => {
+    const textContent = displayMode === 'hex'
+      ? hexText + pendingHexRef.current
+      : terminalText + pendingTextRef.current
+    if (!textContent.trim()) return
+    const blob = new Blob([textContent], { type: 'text/plain;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
     a.download = `serial_receive_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.txt`
     a.click()
     URL.revokeObjectURL(url)
-  }
+  }, [displayMode, terminalText, hexText])
 
   // Serial listeners
   useEffect(() => {
