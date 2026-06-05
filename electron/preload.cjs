@@ -5,6 +5,9 @@ const serialApi = {
   openPort: (options) => ipcRenderer.invoke('serial:open', options),
   closePort: () => ipcRenderer.invoke('serial:close'),
   write: (data) => ipcRenderer.invoke('serial:write', data),
+  setDTR: (value) => ipcRenderer.invoke('serial:setDTR', value),
+  setRTS: (value) => ipcRenderer.invoke('serial:setRTS', value),
+  getSignals: () => ipcRenderer.invoke('serial:getSignals'),
   onData: (callback) => {
     const listener = (_event, payload) => callback(payload)
     ipcRenderer.on('serial:data', listener)

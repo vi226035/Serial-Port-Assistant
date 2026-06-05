@@ -3,8 +3,14 @@ const baudRateOptions = ['9600', '19200', '38400', '57600', '115200']
 function SerialConfigPanel({
   config,
   ports,
+  dtr,
+  rts,
+  flowControl,
   onConfigChange,
   onBaudPresetChange,
+  onFlowControlChange,
+  onDTRChange,
+  onRTSChange,
   onRefreshPorts,
   onToggleConnection,
   isSupported,
@@ -97,6 +103,39 @@ function SerialConfigPanel({
               <option value="odd">Odd</option>
             </select>
           </label>
+
+          <label>
+            <span>流控</span>
+            <select
+              value={flowControl}
+              onChange={(e) => onFlowControlChange(e.target.value)}
+              disabled={isConnected}
+            >
+              <option value="none">无</option>
+              <option value="hardware">硬件流控 (RTS/CTS)</option>
+            </select>
+          </label>
+        </div>
+
+        {/* DTR / RTS 手动控制 */}
+        <div className="signal-controls">
+          <span className="signal-label">信号控制</span>
+          <div className="signal-buttons">
+            <button
+              className={`signal-btn ${dtr ? 'active' : ''}`}
+              onClick={() => onDTRChange(!dtr)}
+              title="DTR"
+            >
+              DTR {dtr ? 'ON' : 'OFF'}
+            </button>
+            <button
+              className={`signal-btn ${rts ? 'active' : ''}`}
+              onClick={() => onRTSChange(!rts)}
+              title="RTS"
+            >
+              RTS {rts ? 'ON' : 'OFF'}
+            </button>
+          </div>
         </div>
 
         <button className="primary-button" onClick={onToggleConnection} disabled={!isSupported}>
